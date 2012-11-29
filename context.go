@@ -4,13 +4,14 @@ import (
 	"fmt"
 	"log"
 	"reflect"
-	"strings"
+	"strconv"
+	//"strings"
 )
 
 type Context interface {
-	GetValue(key string) (interface{}, bool)
-	GetString(key string) (string, bool)
+	Get(key string) (reflect.Value, bool)
 	Root() Context
+	AsBool() bool
 }
 
 type ComboContext struct {
@@ -18,24 +19,23 @@ type ComboContext struct {
 	root Context
 }
 
-func (me *ComboContext) GetValue(key string) (interface{}, bool) {
+func (me *ComboContext) Get(key string) (reflect.Value, bool) {
 	for _, ctx := range me.Ctxs {
-		val, found := ctx.GetValue(key)
+		val, found := ctx.Get(key)
 		if found {
 			return val, true
 		}
 	}
-	return nil, false
+	return reflect.Zero(reflect.TypeOf(0)), false
 }
 
-func (me *ComboContext) GetString(key string) (string, bool) {
+func (me *ComboContext) AsBool() bool {
 	for _, ctx := range me.Ctxs {
-		val, found := ctx.GetString(key)
-		if found {
-			return val, true
+		if ctx.AsBool() {
+			return true
 		}
 	}
-	return "", false
+	return false
 }
 
 func (c *ComboContext) Root() Context {
@@ -43,148 +43,191 @@ func (c *ComboContext) Root() Context {
 }
 
 func MakeContext(objs ...interface{}) Context {
-	log.Println("Combo Ctx Len=", len(objs), objs)
 	ctxs := make([]Context, len(objs))
-	for i := range objs {
-		ctxs[i] = _makeContext(objs[i])
+	for i, obj := range objs {
+		ctxs[i] = _makeContext(obj)
 	}
 	return &ComboContext{ctxs, nil}
 }
 
 func _makeContext(obj interface{}) Context {
 	t := reflect.TypeOf(obj)
-	kind := t.Kind().String()
-	log.Println("kind="+kind, obj)
-	switch {
-	case t.Kind() == reflect.Map:
-		return &MapContext{obj, nil}
-	case strings.HasPrefix(kind, "int") || strings.HasPrefix(kind, "uint"):
-		fallthrough
-	case strings.HasPrefix(kind, "float") || strings.HasPrefix(kind, "complex"):
-		fallthrough
-	case kind == "bool" || kind == "string":
-		return &ConstContext{fmt.Sprintf("%v", obj), nil}
-	case kind == "struct":
-		log.Println("As StructContext", obj)
-		return &StructContext{obj, nil}
-	case kind == "ptr":
-		_obj := reflect.ValueOf(obj).Elem()
-		if _obj.Kind() == reflect.Struct {
-			return &StructContext{obj, nil}
-		}
-		return _makeContext(_obj.Interface())
-	//case strings.HasPrefix(kind, "chan"):
-	//	panic("Not support Chan")
-	//case strings.HasPrefix(kind, "uintpr"):
-	//	panic("Not support uintpr")
-	default:
-		panic("Not support " + kind)
+	//log.Println(t.String())
+	if t.String() == "reflect.Value" {
+		return &BasicContext{obj.(reflect.Value), nil}
 	}
-	return nil
+	return &BasicContext{reflect.ValueOf(obj), nil}
 }
 
-type ConstContext struct {
-	Value string
+type BasicContext struct {
+	value reflect.Value
 	root  Context
 }
 
-func (me *ConstContext) GetValue(key string) (interface{}, bool) {
+func (ctx *BasicContext) Get(key string) (reflect.Value, bool) {
+	val, found := ctx._get(key)
+	if !found {
+		return val, found
+	}
+	if val.Kind() == reflect.Interface {
+		log.Println("XXX", val.Type(), val.Interface())
+		return reflect.ValueOf(val.Interface()), true
+	}
+	return val, found
+}
+
+func (ctx *BasicContext) _get(key string) (reflect.Value, bool) {
+	if !ctx.value.IsValid() {
+		return ctx.value, false
+	}
 	if key == "." {
-		return me.Value, true
+		return ctx.value, true
 	}
-	return nil, false
-}
-
-func (me *ConstContext) GetString(key string) (string, bool) {
-	return me.Value, true
-}
-
-func (me *ConstContext) Root() Context {
-	return me.root
-}
-
-type MapContext struct {
-	_map interface{}
-	root Context
-}
-
-func (me *MapContext) GetValue(key string) (interface{}, bool) {
-	v := reflect.ValueOf(me._map)
-	keys := v.MapKeys()
-	for _, _key := range keys {
-		if key == _key.String() {
-			return v.MapIndex(_key).Interface(), true
+	log.Println("ctx value kind=", ctx.value.Kind().String(), "key=", key)
+	switch ctx.value.Kind() {
+	case reflect.Interface:
+		_v := reflect.ValueOf(ctx.value.Interface())
+		log.Println(_v.Kind().String())
+		panic("EEEE")
+	case reflect.Int:
+		fallthrough
+	case reflect.Int16:
+		fallthrough
+	case reflect.Int32:
+		fallthrough
+	case reflect.Int64:
+		fallthrough
+	case reflect.Uint:
+		fallthrough
+	case reflect.Uint16:
+		fallthrough
+	case reflect.Uint32:
+		fallthrough
+	case reflect.Uint64:
+		fallthrough
+	case reflect.Float32:
+		fallthrough
+	case reflect.Float64:
+		fallthrough
+	case reflect.Complex64:
+		fallthrough
+	case reflect.Complex128:
+		fallthrough
+	case reflect.Bool:
+		fallthrough
+	case reflect.String:
+		return reflect.Zero(ctx.value.Type()), false
+	case reflect.Map:
+		for _, _key := range ctx.value.MapKeys() {
+			_v := ctx.value.MapIndex(_key)
+			if key == fmt.Sprintf("%v", _key.Interface()) {
+				log.Println("Map Found key=", key, _v.Kind())
+				return _v, true
+			}
 		}
-	}
-	return nil, false
-}
-
-func (me *MapContext) GetString(key string) (string, bool) {
-	v := reflect.ValueOf(me._map)
-	keys := v.MapKeys()
-	for _, _key := range keys {
-		if key == _key.String() {
-			return fmt.Sprintf("%v", v.MapIndex(_key).Interface()), true
+		log.Println("Key Not found--?>" + key)
+		return reflect.Zero(ctx.value.Type()), false
+	case reflect.Array:
+		fallthrough
+	case reflect.Slice:
+		index, err := strconv.ParseInt(key, 0, 32)
+		if err != nil {
+			return reflect.Zero(ctx.value.Type()), false
 		}
+		if index < 0 || int(index) >= ctx.value.Len() {
+			return reflect.Zero(ctx.value.Type()), false
+		}
+		return ctx.value.Index(int(index)), true
+	case reflect.Ptr:
+		if ctx.value.Elem().Kind() != reflect.Struct {
+			return reflect.Zero(ctx.value.Type()), false
+		}
+		fallthrough
+	case reflect.Struct:
+		log.Println(ctx.value.Type())
+		v := reflect.Indirect(ctx.value)
+		field := v.FieldByName(key)
+		if field.IsValid() {
+			log.Println("Return Field Value for key=" + key)
+			return field, true
+		}
+
+		t := ctx.value.Type()
+		method, ok := t.MethodByName(key)
+		if !ok {
+			log.Println("Miss field or method for -->" + key)
+			return reflect.Zero(ctx.value.Type()), false
+		}
+		if method.Func.Type().NumIn() != 1 || method.Func.Type().NumOut() == 0 {
+			log.Println("Named Func Found , but has-args or void return", method, method.Func.Type().NumIn(), method.Func.Type().NumOut())
+			return reflect.Zero(ctx.value.Type()), false
+		}
+		return method.Func.Call([]reflect.Value{ctx.value})[0], true
+	default:
+		log.Println("Not Support kind=" + ctx.value.Kind().String())
+		return reflect.Zero(ctx.value.Type()), false
 	}
-	return "", false
+	panic("Impossible")
+	return reflect.Zero(reflect.TypeOf("")), false
 }
 
-func (me *MapContext) Root() Context {
-	return me.root
-}
-
-type EmtryContext struct {
-	root Context
-}
-
-func (ctx *EmtryContext) GetValue(key string) (interface{}, bool) {
-	return nil, false
-}
-
-func (ctx *EmtryContext) GetString(key string) (string, bool) {
-	return "", false
-}
-
-func (ctx *EmtryContext) Root() Context {
+func (ctx *BasicContext) Root() Context {
 	return ctx.root
 }
 
-type StructContext struct {
-	obj  interface{}
-	root Context
-}
-
-func (ctx *StructContext) GetValue(key string) (interface{}, bool) {
-	v := reflect.Indirect(reflect.ValueOf(ctx.obj))
-	field := v.FieldByName(key)
-	if field.IsValid() {
-		log.Println("Return Field Value for key=" + key)
-		return field.Interface(), true
+func (ctx *BasicContext) AsBool() bool {
+	if !ctx.value.IsValid() {
+		return false
 	}
-
-	t := reflect.TypeOf(ctx.obj)
-	method, ok := t.MethodByName(key)
-	if !ok {
-		log.Println("Miss field or method for -->" + key)
-		return nil, false
+	switch ctx.value.Kind() {
+	case reflect.Int:
+		fallthrough
+	case reflect.Int16:
+		fallthrough
+	case reflect.Int32:
+		fallthrough
+	case reflect.Int64:
+		return ctx.value.Int() != 0
+	case reflect.Uint:
+		fallthrough
+	case reflect.Uint16:
+		fallthrough
+	case reflect.Uint32:
+		fallthrough
+	case reflect.Uint64:
+		return ctx.value.Uint() != 0
+	case reflect.Float32:
+		fallthrough
+	case reflect.Float64:
+		return ctx.value.Float() != 0.0
+	case reflect.Complex64:
+		fallthrough
+	case reflect.Complex128:
+		return ctx.value.Complex() != complex128(0)
+	case reflect.Bool:
+		return ctx.value.Bool()
+	case reflect.String:
+		fallthrough
+	case reflect.Map:
+		fallthrough
+	case reflect.Array:
+		fallthrough
+	case reflect.Slice:
+		log.Println("len=", ctx.value.Len())
+		return ctx.value.Len() != 0
+	case reflect.Ptr:
+		if ctx.value.Elem().Kind() != reflect.Struct {
+			return false
+		}
+	case reflect.Struct:
+		return true
+	//case reflect.Interface:
+	//	val := ctx.value.Interface()
+	//	log.Println(reflect.ValueOf(val).Type())
+	//	return false
+	default:
+		log.Println("Not Support kind=" + ctx.value.Kind().String())
+		return false
 	}
-	if method.Func.Type().NumIn() != 1 || method.Func.Type().NumOut() == 0 {
-		log.Println("Named Func Found , but has-args or void return", method, method.Func.Type().NumIn(), method.Func.Type().NumOut())
-		return nil, false
-	}
-
-	return method.Func.Call([]reflect.Value{reflect.ValueOf(ctx.obj)})[0].Interface(), true
-}
-
-func (ctx *StructContext) GetString(key string) (string, bool) {
-	val, ok := ctx.GetValue(key)
-	if !ok {
-		return "", false
-	}
-	return fmt.Sprintf("%v", val), true
-}
-
-func (ctx *StructContext) Root() Context {
-	return ctx.root
+	return false
 }

@@ -9,7 +9,7 @@ import (
 
 func TestVariableRender(*testing.T) {
 	v := &VariableRenderNode{"Name", false, 0}
-	ctx := &MapContext{map[string]interface{}{"Name": "wendal", "Url": "<a>http://wendal.net</a>"}, nil}
+	ctx := MakeContext(map[string]interface{}{"Name": "wendal", "Url": "<a>http://wendal.net</a>"})
 
 	w := &bytes.Buffer{}
 
@@ -71,7 +71,7 @@ func TestSimpleStructRender(*testing.T) {
 	}
 	str := string(w.Bytes())
 	if str != "wendal" {
-		log.Fatal("NOT Match -->" + str)
+		log.Fatal("NOT Match -->        " + str)
 	}
 
 	w = &bytes.Buffer{}

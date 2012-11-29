@@ -1,6 +1,7 @@
 package mustache
 
 import (
+	"fmt"
 	"html"
 	"io"
 )
@@ -20,10 +21,13 @@ func (node *VariableRenderNode) Father() RenderNode {
 }
 
 func (node *VariableRenderNode) Render(w io.Writer, ctx Context) error {
-	str, found := ctx.GetString(node.Key)
+	v, found := ctx.Get(node.Key)
 	if !found && !IgnoreInvaildKey {
 		return &RenderError{node.lineNumber, "Variable NOT found : " + node.Key}
 	}
+
+	str := fmt.Sprintf("%v", v.Interface())
+
 	if node.Escape {
 		str = html.EscapeString(str)
 	}

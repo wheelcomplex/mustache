@@ -27,13 +27,13 @@ func TestSectionRender(*testing.T) {
 	m := map[string]interface{}{}
 	m2 := map[string]string{"name": "wendal"}
 	m["admin"] = m2
-	ctx := &MapContext{m, nil}
+	ctx := MakeContext(m)
 	w := &bytes.Buffer{}
 	err := section.Render(w, ctx)
 	if err != nil {
 		log.Fatal(err)
 	}
-	str := string(w.Bytes())
+	str := w.String()
 	if str != "wendal" {
 		log.Fatal("Render ERROR --> " + str)
 	}

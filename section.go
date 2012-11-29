@@ -23,32 +23,14 @@ func (node *SectionRenderNode) Father() RenderNode {
 }
 
 func (node *SectionRenderNode) Render(w io.Writer, ctx Context) error {
-	val, found := ctx.GetValue(node.Key)
-	v := reflect.ValueOf(val)
+	v, found := ctx.Get(node.Key)
 	kind := v.Type().Kind()
 	log.Println("Section Type Kind = " + kind.String())
 	ok := false
+	var _ctx Context
 	if found {
-		if val == nil {
-			ok = false
-		} else {
-			switch kind {
-			case reflect.Bool:
-				ok = v.Bool()
-			case reflect.Map:
-				ok = v.Len() != 0
-			case reflect.Array:
-				ok = v.Len() != 0
-			case reflect.Slice:
-				ok = v.Len() != 0
-			case reflect.Ptr:
-				ok = true
-			case reflect.Struct:
-				ok = true
-			default:
-				return &RenderError{node.lineNumber, "Not support Kind = " + kind.String()}
-			}
-		}
+		_ctx = _makeContext(v)
+		ok = _ctx.AsBool()
 	}
 
 	if ok && node.Inverted {
@@ -60,11 +42,10 @@ func (node *SectionRenderNode) Render(w io.Writer, ctx Context) error {
 		return nil
 	}
 
-	var _ctx Context
 	if kind == reflect.Array || kind == reflect.Slice {
 		log.Println("Section Arry/Slice")
 		for i := 0; i < v.Len(); i++ {
-			_ctx = MakeContext(v.Index(i).Interface())
+			_ctx = _makeContext(v.Index(i))
 			for _, child := range node.Clildren {
 				err := child.Render(w, _ctx)
 				if err != nil {
@@ -74,10 +55,10 @@ func (node *SectionRenderNode) Render(w io.Writer, ctx Context) error {
 		}
 		return nil
 	}
-	if val == nil {
-		_ctx = &EmtryContext{ctx.Root()}
+	if !v.IsValid() {
+		_ctx = _makeContext(reflect.ValueOf(""))
 	} else {
-		_ctx = MakeContext(val)
+		_ctx = _makeContext(v)
 	}
 	for _, child := range node.Clildren {
 		err := child.Render(w, _ctx)
