@@ -11,7 +11,6 @@ import (
 type Context interface {
 	Get(key string) (reflect.Value, bool)
 	Root() Context
-	AsBool() bool
 }
 
 type ComboContext struct {
@@ -27,15 +26,6 @@ func (me *ComboContext) Get(key string) (reflect.Value, bool) {
 		}
 	}
 	return reflect.Zero(reflect.TypeOf(0)), false
-}
-
-func (me *ComboContext) AsBool() bool {
-	for _, ctx := range me.Ctxs {
-		if ctx.AsBool() {
-			return true
-		}
-	}
-	return false
 }
 
 func (c *ComboContext) Root() Context {
@@ -85,10 +75,6 @@ func (ctx *BasicContext) _get(key string) (reflect.Value, bool) {
 	}
 	log.Println("ctx value kind=", ctx.value.Kind().String(), "key=", key)
 	switch ctx.value.Kind() {
-	case reflect.Interface:
-		_v := reflect.ValueOf(ctx.value.Interface())
-		log.Println(_v.Kind().String())
-		panic("EEEE")
 	case reflect.Int:
 		fallthrough
 	case reflect.Int16:
@@ -175,11 +161,11 @@ func (ctx *BasicContext) Root() Context {
 	return ctx.root
 }
 
-func (ctx *BasicContext) AsBool() bool {
-	if !ctx.value.IsValid() {
+func AsBool(value reflect.Value) bool {
+	if !value.IsValid() {
 		return false
 	}
-	switch ctx.value.Kind() {
+	switch value.Kind() {
 	case reflect.Int:
 		fallthrough
 	case reflect.Int16:
@@ -187,7 +173,7 @@ func (ctx *BasicContext) AsBool() bool {
 	case reflect.Int32:
 		fallthrough
 	case reflect.Int64:
-		return ctx.value.Int() != 0
+		return value.Int() != 0
 	case reflect.Uint:
 		fallthrough
 	case reflect.Uint16:
@@ -195,17 +181,17 @@ func (ctx *BasicContext) AsBool() bool {
 	case reflect.Uint32:
 		fallthrough
 	case reflect.Uint64:
-		return ctx.value.Uint() != 0
+		return value.Uint() != 0
 	case reflect.Float32:
 		fallthrough
 	case reflect.Float64:
-		return ctx.value.Float() != 0.0
+		return value.Float() != 0.0
 	case reflect.Complex64:
 		fallthrough
 	case reflect.Complex128:
-		return ctx.value.Complex() != complex128(0)
+		return value.Complex() != complex128(0)
 	case reflect.Bool:
-		return ctx.value.Bool()
+		return value.Bool()
 	case reflect.String:
 		fallthrough
 	case reflect.Map:
@@ -213,21 +199,17 @@ func (ctx *BasicContext) AsBool() bool {
 	case reflect.Array:
 		fallthrough
 	case reflect.Slice:
-		log.Println("len=", ctx.value.Len())
-		return ctx.value.Len() != 0
+		return value.Len() != 0
 	case reflect.Ptr:
-		if ctx.value.Elem().Kind() != reflect.Struct {
+		if value.Elem().Kind() != reflect.Struct {
 			return false
 		}
+		fallthrough
 	case reflect.Struct:
 		return true
-	//case reflect.Interface:
-	//	val := ctx.value.Interface()
-	//	log.Println(reflect.ValueOf(val).Type())
-	//	return false
-	default:
-		log.Println("Not Support kind=" + ctx.value.Kind().String())
-		return false
+	case reflect.Func:
+		return true
 	}
+	log.Println("Not Support kind=" + value.Kind().String())
 	return false
 }

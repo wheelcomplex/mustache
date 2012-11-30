@@ -2,6 +2,7 @@ package mustache
 
 import (
 	"bytes"
+	"io"
 	"log"
 	"reflect"
 	"testing"
@@ -18,6 +19,8 @@ func TestReflect(*testing.T) {
 
 	log.Println(reflect.TypeOf(Segment{}).Kind().String())
 	log.Println(reflect.TypeOf(&Segment{}).Kind().String())
+
+	log.Println(">>>>>>>>>>>", reflect.ValueOf(Segment{}).CanAddr())
 
 }
 
@@ -90,5 +93,21 @@ func TestSectionArraySlice(*testing.T) {
 	str, err = Fast.RenderString("V{{^is_ok}}AB{{/is_ok}}Z", m)
 	if str != "VZ" || err != nil {
 		log.Fatal("E>> " + str)
+	}
+}
+
+func _test_section_node_render(ctx Context, nodes []RenderNode, w io.Writer) error {
+	io.WriteString(w, "Wendal")
+	return nil
+}
+
+func TestSectionRenderFunc(*testing.T) {
+	m := map[string]interface{}{"func": _test_section_node_render}
+	str, err := Fast.RenderString("{{#func}}AB{{/func}}", m)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if str != "Wendal" {
+		log.Fatal("Not expect : " + str)
 	}
 }

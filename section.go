@@ -29,8 +29,7 @@ func (node *SectionRenderNode) Render(w io.Writer, ctx Context) error {
 	ok := false
 	var _ctx Context
 	if found {
-		_ctx = _makeContext(v)
-		ok = _ctx.AsBool()
+		ok = AsBool(v)
 	}
 
 	if ok && node.Inverted {
@@ -58,6 +57,9 @@ func (node *SectionRenderNode) Render(w io.Writer, ctx Context) error {
 	if !v.IsValid() {
 		_ctx = _makeContext(reflect.ValueOf(""))
 	} else {
+		if v.Kind() == reflect.Func {
+			return v.Interface().(func(Context, []RenderNode, io.Writer) error)(ctx, node.Clildren, w)
+		}
 		_ctx = _makeContext(v)
 	}
 	for _, child := range node.Clildren {
@@ -76,3 +78,5 @@ func (node *SectionRenderNode) AddChildren(clild RenderNode) {
 func (node *SectionRenderNode) LineNumber() int {
 	return node.lineNumber
 }
+
+//type SectionSegmentRender func(Context, []RenderNode, io.Writer) error
