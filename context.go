@@ -8,61 +8,64 @@ import (
 	//"strings"
 )
 
-type context struct {
-	dir string
-}
+var VALUE_NIL = &Value{reflect.Zero(reflect.TypeOf(0))}
+
+//---------------------------------------------------------------
 
 type ComboContext struct {
-	*context
 	Ctxs []Context
+	dir  string
 }
 
-func (me *ComboContext) Get(key string) (reflect.Value, bool) {
+func (me *ComboContext) Get(key string) (*Value, bool) {
 	for _, ctx := range me.Ctxs {
 		val, found := ctx.Get(key)
 		if found {
 			return val, true
 		}
 	}
-	return reflect.Zero(reflect.TypeOf(0)), false
+	return nil, false
 }
 
-func (c *ComboContext) Root() Context {
-	return c.root
+func (c *ComboContext) Dir() string {
+	if c.dir != "" {
+		return c.dir
+	}
+	return c.Ctxs[0].Dir()
 }
 
-func MakeContext(objs ...interface{}) Context {
+//-----------------------------------------------------
+
+func MakeContexts(objs ...interface{}) Context {
 	ctxs := make([]Context, len(objs))
 	for i, obj := range objs {
-		ctxs[i] = _makeContext(obj)
+		ctxs[i] = MakeContext(obj)
 	}
-	return &ComboContext{ctxs, nil}
+	return &ComboContext{ctxs, "."}
 }
 
-func _makeContext(obj interface{}) Context {
+func MakeContext(obj interface{}) Context {
 	t := reflect.TypeOf(obj)
 	//log.Println(t.String())
 	if t.String() == "reflect.Value" {
-		return &BasicContext{obj.(reflect.Value), nil}
+		return &BasicContext{obj.(reflect.Value), "."}
 	}
-	return &BasicContext{reflect.ValueOf(obj), nil}
+	return &BasicContext{reflect.ValueOf(obj), "."}
 }
+
+//-------------------------------------
 
 type BasicContext struct {
 	value reflect.Value
-	root  Context
+	dir   string
 }
 
-func (ctx *BasicContext) Get(key string) (reflect.Value, bool) {
+func (ctx *BasicContext) Get(key string) (*Value, bool) {
 	val, found := ctx._get(key)
 	if !found {
-		return val, found
+		return nil, false
 	}
-	if val.Kind() == reflect.Interface {
-		log.Println("XXX", val.Type(), val.Interface())
-		return reflect.ValueOf(val.Interface()), true
-	}
-	return val, found
+	return &Value{val}, true
 }
 
 func (ctx *BasicContext) _get(key string) (reflect.Value, bool) {
@@ -156,59 +159,6 @@ func (ctx *BasicContext) _get(key string) (reflect.Value, bool) {
 	return reflect.Zero(reflect.TypeOf("")), false
 }
 
-func (ctx *BasicContext) Root() Context {
-	return ctx.root
-}
-
-func AsBool(value reflect.Value) bool {
-	if !value.IsValid() {
-		return false
-	}
-	switch value.Kind() {
-	case reflect.Int:
-		fallthrough
-	case reflect.Int16:
-		fallthrough
-	case reflect.Int32:
-		fallthrough
-	case reflect.Int64:
-		return value.Int() != 0
-	case reflect.Uint:
-		fallthrough
-	case reflect.Uint16:
-		fallthrough
-	case reflect.Uint32:
-		fallthrough
-	case reflect.Uint64:
-		return value.Uint() != 0
-	case reflect.Float32:
-		fallthrough
-	case reflect.Float64:
-		return value.Float() != 0.0
-	case reflect.Complex64:
-		fallthrough
-	case reflect.Complex128:
-		return value.Complex() != complex128(0)
-	case reflect.Bool:
-		return value.Bool()
-	case reflect.String:
-		fallthrough
-	case reflect.Map:
-		fallthrough
-	case reflect.Array:
-		fallthrough
-	case reflect.Slice:
-		return value.Len() != 0
-	case reflect.Ptr:
-		if value.Elem().Kind() != reflect.Struct {
-			return false
-		}
-		fallthrough
-	case reflect.Struct:
-		return true
-	case reflect.Func:
-		return true
-	}
-	log.Println("Not Support kind=" + value.Kind().String())
-	return false
+func (ctx *BasicContext) Dir() string {
+	return ctx.dir
 }

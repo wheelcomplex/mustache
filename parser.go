@@ -2,91 +2,132 @@ package mustache
 
 import (
 	"bufio"
-	"fmt"
+	"errors"
 	"io"
 	"log"
 	"strconv"
 	"strings"
 )
 
-var Debug = true
-
 const (
-	Strings               = '*'
-	TAG_Variable          = '$'
-	TAG_Variable_UnEscape = '&'
-	TAG_Section           = '#'
-	TAG_Inverted_Section  = '^'
-	TAG_Comment           = '!'
-	TAG_Partial           = '>'
-	TAG_End               = '/'
+	T_CONS = iota
+	T_Val
+	T_Section
+	T_Comment
+	T_Partial
+	T_End
 )
 
-func (tpl *Template) AddSegment(segment Segment) error {
-	log.Printf("Add New Segment: Type=%s, Value=%s", string(segment.Type), segment.Value)
-	if KeepSegment {
-		tpl.Smts = append(tpl.Smts, segment)
-	}
-
-	if segment.Type == TAG_Comment {
-		return nil
-	}
-
-	if segment.Type == TAG_End {
-		if tpl.cur.Name() != segment.Value {
-			return parseError{segment.LineNumber, fmt.Sprintf("CloseTag expected [%s] but [%s]", tpl.cur.Name(), segment.Value)}
-		}
-		tpl.cur = tpl.cur.Father()
-		log.Println("End Tag --> " + segment.Value)
-		return nil
-	}
-
-	node := makeRenderNode(segment, tpl.cur)
-	tpl.cur.AddChildren(node)
-	if segment.Type == Strings || segment.Type == TAG_Variable || segment.Type == TAG_Variable_UnEscape {
-		log.Println("Non-Children Node --> " + segment.Value)
-		return nil
-	}
-	log.Println("New Node with Children -->" + segment.Value)
-	tpl.cur = node
-	return nil
+type tag struct {
+	Value string
+	Type  int
+	Flag  bool
 }
 
-func ParseReader(r io.Reader) (*Template, error) {
-	root := &TopRenderNode{}
-	tpl := &Template{make([]Segment, 0), root, root}
+func Parse(r io.Reader) (*Template, error) {
+	tpl := &Template{}
+	tpl.Tree = make([]Node, 0)
+	//var err error
 
-	rd := bufio.NewReader(r)
+	rd := bufio.NewReaderSize(r, 1024*1024)
 	lineNumber := -1
-
-	end := false
-	for {
+	flag := true
+	sections := make([]*SectionNode, 0)
+	for flag {
 		lineNumber++
 		line, err := rd.ReadString('\n')
 		if err != nil {
 			if err != io.EOF {
-				return nil, parseError{lineNumber, err.Error()}
-			} else {
-				end = true
+				return nil, err
 			}
+			flag = false
 		}
 
-		err = parseLine(line, lineNumber, tpl)
+		tags, err := parseLine(line, lineNumber)
 		if err != nil {
-			return nil, parseError{lineNumber, err.Error()}
+			return nil, err
 		}
-		if end {
-			break
+
+		// Section Tag only?
+
+		_s_count := 0
+		var _tag2 tag
+		for _, _tag := range tags {
+			switch _tag.Type {
+			case T_Section:
+				_s_count += 1
+				_tag2 = _tag
+			case T_CONS:
+				if strings.Trim(_tag.Value, " \t\r\n") != "" {
+					_s_count = -1
+					break
+				}
+			default:
+				_s_count = -1
+				break
+			}
+			if _s_count == -1 {
+				break
+			}
+		}
+		if _s_count == 1 {
+			log.Println("> Single Section > "+_tag2.Value, tags)
+			tags = []tag{_tag2}
+		}
+
+		for _, _tag := range tags {
+			//log.Printf(">>> %v", _tag)
+			_ = log.Ldate
+
+			switch _tag.Type {
+			case T_Comment:
+				continue
+			case T_Section:
+				log.Printf(">Section [%v]", _tag.Value)
+				sec := &SectionNode{_tag.Value, flag, make([]Node, 0)}
+				if len(sections) == 0 {
+					tpl.Tree = append(tpl.Tree, sec)
+					log.Printf("Tree Len=%v", len(tpl.Tree))
+				} else {
+					sections[len(sections)-1].Clildren = append(sections[len(sections)-1].Clildren, sec)
+				}
+				sections = append(sections, sec)
+			case T_End:
+				if len(sections) == 0 || sections[len(sections)-1].name != _tag.Value {
+					//log.Printf(">> %v", sections)
+					return nil, errors.New("End TAG  Invaild >>" + _tag.Value)
+				}
+				log.Printf(">Section End [%v]", _tag.Value)
+				sections = sections[:len(sections)-1]
+			default:
+				var node Node
+				switch _tag.Type {
+				case T_CONS:
+					log.Println("Cons ? --> " + _tag.Value)
+					node = &ConstantNode{_tag.Value}
+				case T_Val:
+					node = &ValNode{_tag.Value, _tag.Flag}
+				case T_Partial:
+					node = &PartialNode{_tag.Value}
+				}
+				if len(sections) == 0 {
+					tpl.Tree = append(tpl.Tree, node)
+				} else {
+					sections[len(sections)-1].Clildren = append(sections[len(sections)-1].Clildren, node)
+				}
+			}
+
 		}
 	}
 	return tpl, nil
 }
 
-func parseLine(line string, lineNumber int, tpl *Template) error {
+func parseLine(line string, lineNumber int) (tags []tag, err error) {
 	sz := len(line)
 	start := 0
 	end := 0
 	started := false
+	tags = make([]tag, 0)
 	for end < sz {
 		//log.Println("start=", start, "end=", end, "line=", lineNumber)
 		started = false
@@ -97,7 +138,7 @@ func parseLine(line string, lineNumber int, tpl *Template) error {
 			if line[end] == '{' && (end+3) < sz && line[end+1] == '{' {
 				started = true
 				if end > start {
-					tpl.AddSegment(Segment{Strings, line[start:end], lineNumber})
+					tags = append(tags, tag{line[start:end], T_CONS, false})
 				}
 				start = end + 2
 				end = start + 1
@@ -116,7 +157,7 @@ func parseLine(line string, lineNumber int, tpl *Template) error {
 
 		if !started {
 			if end > start {
-				tpl.AddSegment(Segment{Strings, line[start:end], lineNumber})
+				tags = append(tags, tag{line[start:end], T_CONS, false})
 			}
 			break
 		}
@@ -131,13 +172,13 @@ func parseLine(line string, lineNumber int, tpl *Template) error {
 				end++
 				continue
 			}
-			escape := true
+			escape := false
 			// {{{ABC}}} --> start=2, end=
 			if line[start] == '{' && (end+2) < sz && line[end+2] == '}' {
 				tagValue = line[start+1 : end]
 				start = end + 3
 				end = start
-				escape = false
+				escape = true
 			} else {
 				tagValue = line[start:end]
 				start = end + 2
@@ -148,48 +189,29 @@ func parseLine(line string, lineNumber int, tpl *Template) error {
 
 			tagValue = strings.TrimRight(tagValue, " \t")
 			if tagValue == "" {
-				return parseError{lineNumber, "Blank Tag"}
+				return tags, parseError{lineNumber, "Blank Tag"}
 			}
 
 			switch tagValue[0] {
-			case TAG_Section:
-				fallthrough
-			case TAG_Inverted_Section:
-				fallthrough
-			case TAG_Comment:
-				fallthrough
-			case TAG_Partial:
-				fallthrough
-			case TAG_Variable_UnEscape:
-				fallthrough
-			case TAG_End:
-				if len(tagValue) == 1 {
-					return parseError{lineNumber, "Invaild Tag"}
-				}
-
-				typeRune := rune(tagValue[0])
-				//log.Println("TAG Type" + string(typeRune))
-				tagValue = strings.Trim(tagValue[1:], " \t")
-				if tagValue == "" {
-					return parseError{lineNumber, "Emtry Tag"}
-				}
-				err := tpl.AddSegment(Segment{typeRune, tagValue, lineNumber})
-				if err != nil {
-					return err
-				}
+			case '&':
+				tags = append(tags, tag{tagValue[1:], T_Val, true})
+			case '#':
+				tags = append(tags, tag{tagValue[1:], T_Section, false})
+			case '^':
+				tags = append(tags, tag{tagValue[1:], T_Section, true})
+			case '>':
+				tags = append(tags, tag{tagValue[1:], T_Partial, false})
+			case '!':
+				tags = append(tags, tag{tagValue[1:], T_Comment, false})
+			case '/':
+				tags = append(tags, tag{tagValue[1:], T_End, false})
 			default:
-				//log.Println("First Char = " + tagValue[0:1])
-				tagValue = strings.Trim(tagValue, " \t")
-				if !escape {
-					tpl.AddSegment(Segment{TAG_Variable_UnEscape, tagValue, lineNumber})
-				} else {
-					tpl.AddSegment(Segment{TAG_Variable, tagValue, lineNumber})
-				}
+				tags = append(tags, tag{tagValue, T_Val, escape})
 			}
 			break
 		}
 	}
-	return nil
+	return tags, nil
 }
 
 type parseError struct {
@@ -200,21 +222,3 @@ type parseError struct {
 func (p parseError) Error() string {
 	return "Error at Line" + strconv.Itoa(p.LineNumber) + " " + p.Message
 }
-
-func (s *Segment) String() string {
-	if s.Type == Strings {
-		return s.Value
-	}
-	if s.Type == TAG_Variable {
-		return fmt.Sprintf("{{%s}}", s.Value)
-	}
-	return fmt.Sprintf("{{%s %s}}", string(s.Type), s.Value)
-}
-
-func DumpSegments(w io.Writer, segs []Segment) {
-	for _, s := range segs {
-		io.WriteString(w, s.String())
-	}
-}
-
-//--------------------------------------------------------------
