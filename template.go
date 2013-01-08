@@ -2,6 +2,7 @@ package mustache
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"log"
 	"reflect"
@@ -47,13 +48,10 @@ type Value struct {
 }
 
 func (v *Value) String() string {
-	return v.Val.String()
+	return fmt.Sprintf("%v", v.Val.Interface())
 }
 
 func (v *Value) Bool() bool {
-	if v.Val.IsNil() {
-		return false
-	}
 	if !v.Val.IsValid() {
 		return false
 	}
@@ -72,6 +70,8 @@ func (v *Value) Bool() bool {
 		return true
 	case reflect.Ptr:
 		return (&Value{v.Val.Elem()}).Bool()
+	case reflect.Func:
+		return true
 	}
 	return false
 }

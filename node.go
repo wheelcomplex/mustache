@@ -1,9 +1,12 @@
 package mustache
 
 import (
-	"errors"
+	//"errors"
 	"io"
+	"log"
 	"reflect"
+	"runtime/debug"
+	"strings"
 	_g_tpl "text/template"
 )
 
@@ -15,9 +18,11 @@ type ValNode struct {
 func (node *ValNode) Render(ctx Context, w io.Writer) error {
 	val, found := ctx.Get(node.name)
 	if !found {
-		return errors.New("key=" + node.name + " NOT Found")
+		return nil
+		//return errors.New("key=" + node.name + " NOT Found")
 	}
 	str := val.String()
+	//log.Println("ValNode --> " + str)
 	if node.Escape {
 		str = _g_tpl.HTMLEscapeString(str)
 	}
@@ -44,18 +49,56 @@ type SectionNode struct {
 }
 
 func (node *SectionNode) Render(ctx Context, w io.Writer) error {
+	//log.Println(">> SectionNode : " + node.Name())
+	//defer log.Println(">> End SectionNode : " + node.Name())
 	//TODO person?to_name
+	ctx_helper_name := ""
+	key := node.name
+	if strings.Contains(node.name, "?") {
+		_tmp := strings.Split(node.name, "?")
+		key = _tmp[0]
+		ctx_helper_name = _tmp[1]
+	}
 	var err error
 
-	val, found := ctx.Get(node.name)
-	if !found {
-		return errors.New("key=" + node.name + " NOT Found")
+	val, found := ctx.Get(key)
+
+	//log.Println("DIR:", ctx.Dir())
+
+	//if !found {
+	//	log.Println("NF:", key)
+	//}
+
+	if found {
+		if ctx_helper_name != "" {
+			//log.Println("Search Ctx Helper", ctx_helper_name)
+			ctxHelper, found := ctx.Get(ctx_helper_name)
+			if !found {
+				log.Println("NO Ctx Helper", ctx_helper_name)
+				return nil
+			}
+			_helper, ok := ctxHelper.Val.Interface().(func(interface{}) interface{})
+			if !ok {
+				log.Println("NO GOOD Ctx Helper", ctxHelper)
+				return nil
+			}
+			val.Val = reflect.ValueOf(_helper(val.Val.Interface()))
+			//log.Println("Done for Ctx Helper")
+		}
+		f, ok := val.Val.Interface().(SectionRenderFunc)
+		if ok {
+			log.Println("Using BaiscHelper", key)
+			return f(node.Clildren, node.Inverted, ctx, w)
+		} else {
+			if val.Val.Type().Kind() == reflect.Func {
+				log.Println("What?", val.Val.Interface())
+			}
+		}
 	}
 
-	if node.Inverted {
-		if val.Bool() {
-			return nil
-		}
+	if node.Inverted && (!found || val.Bool()) {
+		//log.Println(">> Inverted SectionNode : ", node.name, key, ctx_helper_name)
+		//defer log.Println(">> End Inverted SectionNode : " + node.Name())
 		for _, _node := range node.Clildren {
 			err = _node.Render(ctx, w)
 			if err != nil {
@@ -65,16 +108,18 @@ func (node *SectionNode) Render(ctx Context, w io.Writer) error {
 		return nil
 	}
 
-	if !val.Bool() {
+	if !found || !val.Bool() {
 		return nil
 	}
+
+	//log.Println("Section True, render children!", node.name)
 
 	switch val.Val.Type().Kind() {
 	case reflect.Array:
 		fallthrough
 	case reflect.Slice:
 		for i := 0; i < val.Val.Len(); i++ {
-			_ctx := MakeContext(val.Val.Index(i))
+			_ctx := MakeContexts(val.Val.Index(i), ctx)
 			for _, child := range node.Clildren {
 				err := child.Render(_ctx, w)
 				if err != nil {
@@ -82,10 +127,9 @@ func (node *SectionNode) Render(ctx Context, w io.Writer) error {
 				}
 			}
 		}
-	case reflect.Func:
-		return errors.New("Not support Func yet") // TODO impl Lambdas
 	default:
-		_ctx := MakeContext(val.Val)
+		//log.Println("using default Section render", key, ctx_helper_name)
+		_ctx := MakeContexts(val.Val, ctx)
 		for _, child := range node.Clildren {
 			err := child.Render(_ctx, w)
 			if err != nil {
@@ -116,7 +160,23 @@ type PartialNode struct {
 }
 
 func (node *PartialNode) Render(ctx Context, w io.Writer) error {
-	return nil
+	dir := ctx.Dir()
+	if dir == "" {
+		log.Println(ctx)
+		dir = "."
+	}
+	if !strings.HasSuffix(dir, "/") {
+		dir += "/"
+	}
+	p := dir + node.name
+	str, err := RenderFile(p, ctx)
+	if err != nil {
+		log.Println(string(debug.Stack()))
+		return err
+	}
+	_, err = w.Write([]byte(str))
+
+	return err
 }
 
 func (node *PartialNode) String() string {
@@ -145,3 +205,5 @@ func (node *ConstantNode) String() string {
 func (node *ConstantNode) Name() string {
 	return node.Val
 }
+
+type SectionRenderFunc func([]Node, bool, Context, io.Writer) error

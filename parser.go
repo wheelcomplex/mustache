@@ -29,7 +29,7 @@ func Parse(r io.Reader) (*Template, error) {
 	tpl.Tree = make([]Node, 0)
 	//var err error
 
-	rd := bufio.NewReaderSize(r, 1024*1024)
+	rd := bufio.NewReaderSize(r, 8192)
 	lineNumber := -1
 	flag := true
 	sections := make([]*SectionNode, 0)
@@ -48,46 +48,22 @@ func Parse(r io.Reader) (*Template, error) {
 			return nil, err
 		}
 
-		// Section Tag only?
-
-		_s_count := 0
-		var _tag2 tag
-		for _, _tag := range tags {
-			switch _tag.Type {
-			case T_Section:
-				_s_count += 1
-				_tag2 = _tag
-			case T_CONS:
-				if strings.Trim(_tag.Value, " \t\r\n") != "" {
-					_s_count = -1
-					break
-				}
-			default:
-				_s_count = -1
-				break
-			}
-			if _s_count == -1 {
-				break
-			}
-		}
-		if _s_count == 1 {
-			log.Println("> Single Section > "+_tag2.Value, tags)
-			tags = []tag{_tag2}
-		}
-
 		for _, _tag := range tags {
 			//log.Printf(">>> %v", _tag)
 			_ = log.Ldate
+			if _tag.Type != T_CONS {
+				_tag.Value = strings.Trim(_tag.Value, "\t\n ")
+			}
 
 			switch _tag.Type {
 			case T_Comment:
 				continue
 			case T_Section:
-				log.Printf(">Section [%v]", _tag.Value)
-				sec := &SectionNode{_tag.Value, flag, make([]Node, 0)}
+				//log.Printf(">Section [%v]", _tag.Value)
+				sec := &SectionNode{_tag.Value, _tag.Flag, make([]Node, 0)}
 				if len(sections) == 0 {
 					tpl.Tree = append(tpl.Tree, sec)
-					log.Printf("Tree Len=%v", len(tpl.Tree))
+					//log.Printf("Tree Len=%v", len(tpl.Tree))
 				} else {
 					sections[len(sections)-1].Clildren = append(sections[len(sections)-1].Clildren, sec)
 				}
@@ -97,13 +73,13 @@ func Parse(r io.Reader) (*Template, error) {
 					//log.Printf(">> %v", sections)
 					return nil, errors.New("End TAG  Invaild >>" + _tag.Value)
 				}
-				log.Printf(">Section End [%v]", _tag.Value)
+				//log.Printf(">Section End [%v]", _tag.Value)
 				sections = sections[:len(sections)-1]
 			default:
 				var node Node
 				switch _tag.Type {
 				case T_CONS:
-					log.Println("Cons ? --> " + _tag.Value)
+					//log.Println("Cons ? --> " + _tag.Value)
 					node = &ConstantNode{_tag.Value}
 				case T_Val:
 					node = &ValNode{_tag.Value, _tag.Flag}
@@ -123,6 +99,9 @@ func Parse(r io.Reader) (*Template, error) {
 }
 
 func parseLine(line string, lineNumber int) (tags []tag, err error) {
+	//if strings.HasSuffix(line, "\n") {
+	//	log.Println("Without \\n ?")
+	//}
 	sz := len(line)
 	start := 0
 	end := 0
@@ -172,13 +151,13 @@ func parseLine(line string, lineNumber int) (tags []tag, err error) {
 				end++
 				continue
 			}
-			escape := false
+			escape := true
 			// {{{ABC}}} --> start=2, end=
 			if line[start] == '{' && (end+2) < sz && line[end+2] == '}' {
 				tagValue = line[start+1 : end]
 				start = end + 3
 				end = start
-				escape = true
+				escape = false
 			} else {
 				tagValue = line[start:end]
 				start = end + 2

@@ -1,14 +1,15 @@
 package mustache
 
 import (
-	"fmt"
+	//"fmt"
 	"log"
 	"reflect"
 	"strconv"
-	//"strings"
+	"strings"
 )
 
 var VALUE_NIL = &Value{reflect.Zero(reflect.TypeOf(0))}
+var NIL = reflect.Zero(reflect.TypeOf(0))
 
 //---------------------------------------------------------------
 
@@ -27,11 +28,20 @@ func (me *ComboContext) Get(key string) (*Value, bool) {
 	return nil, false
 }
 
-func (c *ComboContext) Dir() string {
-	if c.dir != "" {
-		return c.dir
+func (me *ComboContext) Dir() string {
+	dir := me.dir
+	if dir == "" {
+		for _, ctx := range me.Ctxs {
+			dir = ctx.Dir()
+			if dir != "" {
+				break
+			}
+		}
 	}
-	return c.Ctxs[0].Dir()
+	if dir == "" {
+		log.Println("Not Ctx Dir Found?! Return Emtry", me)
+	}
+	return dir
 }
 
 //-----------------------------------------------------
@@ -41,16 +51,26 @@ func MakeContexts(objs ...interface{}) Context {
 	for i, obj := range objs {
 		ctxs[i] = MakeContext(obj)
 	}
-	return &ComboContext{ctxs, "."}
+	return &ComboContext{ctxs, ""}
 }
 
 func MakeContext(obj interface{}) Context {
+	val, ok := obj.(Context)
+	if ok {
+		return val
+	}
 	t := reflect.TypeOf(obj)
 	//log.Println(t.String())
 	if t.String() == "reflect.Value" {
-		return &BasicContext{obj.(reflect.Value), "."}
+		return &BasicContext{obj.(reflect.Value), ""}
 	}
-	return &BasicContext{reflect.ValueOf(obj), "."}
+	return &BasicContext{reflect.ValueOf(obj), ""}
+}
+
+func MakeContextDir(obj interface{}, dir string) Context {
+	ctx := MakeContext(obj)
+	ctx.(*BasicContext).dir = dir
+	return ctx
 }
 
 //-------------------------------------
@@ -61,22 +81,64 @@ type BasicContext struct {
 }
 
 func (ctx *BasicContext) Get(key string) (*Value, bool) {
-	val, found := ctx._get(key)
-	if !found {
+	key = strings.Trim(key, "\t\n ")
+	if !ctx.value.IsValid() {
 		return nil, false
 	}
-	return &Value{val}, true
+	switch {
+	case key == "":
+		return nil, false
+	case key == ".":
+		return &Value{ctx.value}, true
+	case !strings.Contains(key, "."):
+		val, found := _Get(ctx.value, key)
+		if found {
+			return &Value{val}, true
+		}
+		return nil, false
+	}
+
+	tmp := ctx.value
+	var _found bool
+	for _, _key := range strings.Split(key, ".") {
+		tmp, _found = _Get(tmp, _key)
+		if !_found {
+			return nil, false
+		}
+	}
+
+	return &Value{tmp}, true
 }
 
-func (ctx *BasicContext) _get(key string) (reflect.Value, bool) {
-	if !ctx.value.IsValid() {
-		return ctx.value, false
+func _Get(val reflect.Value, key string) (reflect.Value, bool) {
+	if !val.IsValid() {
+		return val, false
 	}
-	if key == "." {
-		return ctx.value, true
+	_val := val.Interface()
+	var _rs interface{}
+	switch _val.(type) {
+	case map[string]interface{}:
+		_rs = _val.(map[string]interface{})[key]
+	case int:
+		return NIL, false
+	case int64:
+		return NIL, false
+	case uint:
+		return NIL, false
+	default:
+		mer, ok := _val.(MapGet)
+		if ok {
+			_rs = mer.Get(key)
+		}
 	}
-	log.Println("ctx value kind=", ctx.value.Kind().String(), "key=", key)
-	switch ctx.value.Kind() {
+	if _rs != nil {
+		return reflect.ValueOf(_rs), true
+	}
+	//if key == "." {
+	//	return val, true
+	//}
+	//log.Println("ctx value kind=", val.Kind().String(), "key=", key)
+	switch val.Kind() {
 	case reflect.Int:
 		fallthrough
 	case reflect.Int16:
@@ -104,56 +166,59 @@ func (ctx *BasicContext) _get(key string) (reflect.Value, bool) {
 	case reflect.Bool:
 		fallthrough
 	case reflect.String:
-		return reflect.Zero(ctx.value.Type()), false
+		return reflect.Zero(val.Type()), false
 	case reflect.Map:
-		for _, _key := range ctx.value.MapKeys() {
-			_v := ctx.value.MapIndex(_key)
-			if key == fmt.Sprintf("%v", _key.Interface()) {
-				log.Println("Map Found key=", key, _v.Kind())
-				return _v, true
+		for _, _key := range val.MapKeys() {
+			mKey := _key.Interface()
+			switch mKey.(type) {
+			case string:
+				if key == mKey.(string) {
+					return val.MapIndex(_key), true
+				}
 			}
 		}
-		log.Println("Key Not found--?>" + key)
-		return reflect.Zero(ctx.value.Type()), false
+		//log.Println("Key Not found--?>" + key)
+		return reflect.Zero(val.Type()), false
 	case reflect.Array:
 		fallthrough
 	case reflect.Slice:
 		index, err := strconv.ParseInt(key, 0, 32)
 		if err != nil {
-			return reflect.Zero(ctx.value.Type()), false
+			return reflect.Zero(val.Type()), false
 		}
-		if index < 0 || int(index) >= ctx.value.Len() {
-			return reflect.Zero(ctx.value.Type()), false
+		if index < 0 || int(index) >= val.Len() {
+			return reflect.Zero(val.Type()), false
 		}
-		return ctx.value.Index(int(index)), true
+		return val.Index(int(index)), true
 	case reflect.Ptr:
-		if ctx.value.Elem().Kind() != reflect.Struct {
-			return reflect.Zero(ctx.value.Type()), false
+		if val.Elem().Kind() != reflect.Struct {
+			return reflect.Zero(val.Type()), false
 		}
 		fallthrough
 	case reflect.Struct:
-		log.Println(ctx.value.Type())
-		v := reflect.Indirect(ctx.value)
+		key = strings.Title(key)
+		//log.Println(val.Type())
+		v := reflect.Indirect(val)
 		field := v.FieldByName(key)
 		if field.IsValid() {
-			log.Println("Return Field Value for key=" + key)
+			//log.Println("Return Field Value for key=" + key)
 			return field, true
 		}
 
-		t := ctx.value.Type()
+		t := val.Type()
 		method, ok := t.MethodByName(key)
 		if !ok {
-			log.Println("Miss field or method for -->" + key)
-			return reflect.Zero(ctx.value.Type()), false
+			//log.Println("Miss field or method for -->" + key)
+			return reflect.Zero(val.Type()), false
 		}
 		if method.Func.Type().NumIn() != 1 || method.Func.Type().NumOut() == 0 {
 			log.Println("Named Func Found , but has-args or void return", method, method.Func.Type().NumIn(), method.Func.Type().NumOut())
-			return reflect.Zero(ctx.value.Type()), false
+			return reflect.Zero(val.Type()), false
 		}
-		return method.Func.Call([]reflect.Value{ctx.value})[0], true
+		return method.Func.Call([]reflect.Value{val})[0], true
 	default:
-		log.Println("Not Support kind=" + ctx.value.Kind().String())
-		return reflect.Zero(ctx.value.Type()), false
+		log.Println("Not Support kind=" + val.Kind().String())
+		return reflect.Zero(val.Type()), false
 	}
 	panic("Impossible")
 	return reflect.Zero(reflect.TypeOf("")), false
@@ -161,4 +226,8 @@ func (ctx *BasicContext) _get(key string) (reflect.Value, bool) {
 
 func (ctx *BasicContext) Dir() string {
 	return ctx.dir
+}
+
+type MapGet interface {
+	Get(string) interface{}
 }
