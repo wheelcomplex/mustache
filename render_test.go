@@ -1,6 +1,7 @@
 package mustache
 
 import (
+	"bytes"
 	"log"
 	"testing"
 )
@@ -42,6 +43,21 @@ func TestSimpleRender3(*testing.T) {
 		log.Fatal(err)
 	}
 	if str != "wendalA\nBwendalC\tDwendalE" {
+		log.Fatal(str)
+	}
+	log.Println(str)
+}
+
+func TestSection(*testing.T) {
+	m := map[string]string{"name": "wendal"}
+	str, err := RenderString("{{# name}}{{.}}{{/name}}{{^name}}ABC{{/name}}", m)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if str != "wendal" {
+		tpl, _ := Parse(bytes.NewBufferString("{{# name}}{{.}}{{/name}}{{^name}}ABC{{/name}}"))
+		log.Println(tpl)
+		log.Println(len(tpl.Tree))
 		log.Fatal(str)
 	}
 	log.Println(str)

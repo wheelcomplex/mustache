@@ -59,7 +59,7 @@ func Parse(r io.Reader) (*Template, error) {
 			case T_Comment:
 				continue
 			case T_Section:
-				//log.Printf(">Section [%v]", _tag.Value)
+				//log.Printf(">Section [%v] %v", _tag.Value, _tag.Flag)
 				sec := &SectionNode{_tag.Value, _tag.Flag, make([]Node, 0)}
 				if len(sections) == 0 {
 					tpl.Tree = append(tpl.Tree, sec)

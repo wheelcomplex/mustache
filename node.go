@@ -1,7 +1,6 @@
 package mustache
 
 import (
-	//"errors"
 	"io"
 	"log"
 	"reflect"
@@ -63,18 +62,13 @@ func (node *SectionNode) Render(ctx Context, w io.Writer) error {
 
 	val, found := ctx.Get(key)
 
-	//log.Println("DIR:", ctx.Dir())
-
-	//if !found {
-	//	log.Println("NF:", key)
-	//}
-
 	if found {
 		if ctx_helper_name != "" {
 			//log.Println("Search Ctx Helper", ctx_helper_name)
 			ctxHelper, found := ctx.Get(ctx_helper_name)
 			if !found {
 				log.Println("NO Ctx Helper", ctx_helper_name)
+
 				return nil
 			}
 			_helper, ok := ctxHelper.Val.Interface().(func(interface{}) interface{})
@@ -82,12 +76,12 @@ func (node *SectionNode) Render(ctx Context, w io.Writer) error {
 				log.Println("NO GOOD Ctx Helper", ctxHelper)
 				return nil
 			}
-			val.Val = reflect.ValueOf(_helper(val.Val.Interface()))
+			val = &Value{reflect.ValueOf(_helper(val.Val.Interface()))}
 			//log.Println("Done for Ctx Helper")
 		}
 		f, ok := val.Val.Interface().(SectionRenderFunc)
 		if ok {
-			log.Println("Using BaiscHelper", key)
+			//log.Println("Using BaiscHelper", key)
 			return f(node.Clildren, node.Inverted, ctx, w)
 		} else {
 			if val.Val.Type().Kind() == reflect.Func {
@@ -96,7 +90,20 @@ func (node *SectionNode) Render(ctx Context, w io.Writer) error {
 		}
 	}
 
-	if node.Inverted && (!found || val.Bool()) {
+	isTrue := found && val.Bool()
+
+	if isTrue && node.Inverted {
+		return nil
+	}
+	if !isTrue && !node.Inverted {
+		return nil
+	}
+
+	if node.Inverted && !(isTrue) {
+		//if found {
+		//	log.Println(">>", val.Val.Interface())
+		//}
+
 		//log.Println(">> Inverted SectionNode : ", node.name, key, ctx_helper_name)
 		//defer log.Println(">> End Inverted SectionNode : " + node.Name())
 		for _, _node := range node.Clildren {
@@ -105,10 +112,6 @@ func (node *SectionNode) Render(ctx Context, w io.Writer) error {
 				return err
 			}
 		}
-		return nil
-	}
-
-	if !found || !val.Bool() {
 		return nil
 	}
 
@@ -138,11 +141,19 @@ func (node *SectionNode) Render(ctx Context, w io.Writer) error {
 		}
 	}
 
+	//log.Println("End Section ", node.name)
+
 	return nil
 }
 
 func (node *SectionNode) String() string {
-	str := "{{#" + node.name + "}}"
+	str := "{{"
+	if node.Inverted {
+		str += "^"
+	} else {
+		str += "#"
+	}
+	str += node.name + "}}"
 	for _, c := range node.Clildren {
 		str += c.String()
 	}
