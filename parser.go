@@ -2,9 +2,10 @@ package mustache
 
 import (
 	"bufio"
-	"errors"
+	"github.com/wendal/errors"
 	"io"
 	"log"
+	"runtime/debug"
 	"strconv"
 	"strings"
 )
@@ -168,7 +169,7 @@ func parseLine(line string, lineNumber int) (tags []tag, err error) {
 
 			tagValue = strings.TrimRight(tagValue, " \t")
 			if tagValue == "" {
-				return tags, parseError{lineNumber, "Blank Tag"}
+				return tags, parseError(lineNumber, "Blank Tag")
 			}
 
 			switch tagValue[0] {
@@ -184,6 +185,8 @@ func parseLine(line string, lineNumber int) (tags []tag, err error) {
 				tags = append(tags, tag{tagValue[1:], T_Comment, false})
 			case '/':
 				tags = append(tags, tag{tagValue[1:], T_End, false})
+			case '=':
+				return tags[0:0], parseError(lineNumber, "Not support {{=%% %%=}} yet!")
 			default:
 				tags = append(tags, tag{tagValue, T_Val, escape})
 			}
@@ -193,11 +196,15 @@ func parseLine(line string, lineNumber int) (tags []tag, err error) {
 	return tags, nil
 }
 
-type parseError struct {
+type _parseError struct {
 	LineNumber int
 	Message    string
 }
 
-func (p parseError) Error() string {
+func parseError(n int, msg string) error {
+	return _parseError{n, msg + "\n" + string(debug.Stack())}
+}
+
+func (p _parseError) Error() string {
 	return "Error at Line" + strconv.Itoa(p.LineNumber) + " " + p.Message
 }

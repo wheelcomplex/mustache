@@ -49,6 +49,14 @@ func (me *ComboContext) Dir() string {
 func MakeContexts(objs ...interface{}) Context {
 	ctxs := make([]Context, len(objs))
 	for i, obj := range objs {
+		//comboCtx, ok := obj.(ComboContext)
+		//if ok {
+		//	for _, ctx := range comboCtx.Ctxs {
+		//		ctxs = append(ctxs, ctx)
+		//	}
+		//	continue
+		//}
+		//ctxs = append(ctxs, MakeContext(obj))
 		ctxs[i] = MakeContext(obj)
 	}
 	return &ComboContext{ctxs, ""}

@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"log"
+	//"log"
 	"reflect"
 )
 
@@ -25,7 +25,7 @@ func (tpl *Template) Render(ctx Context, w io.Writer) error {
 func (tpl *Template) String() string {
 	w := bytes.NewBuffer(nil)
 	for _, node := range tpl.Tree {
-		log.Println("!>" + node.Name())
+		//log.Println("!>" + node.Name())
 		w.WriteString(node.String())
 	}
 	return w.String()
