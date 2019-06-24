@@ -2,12 +2,13 @@ package mustache
 
 import (
 	"bufio"
-	"github.com/wendal/errors"
 	"io"
 	"log"
 	"runtime/debug"
 	"strconv"
 	"strings"
+
+	"github.com/wheelcomplex/errors"
 )
 
 const (
